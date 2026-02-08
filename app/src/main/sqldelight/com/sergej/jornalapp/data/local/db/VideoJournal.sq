@@ -17,3 +17,7 @@ INSERT INTO video_entries(
   created_at_epoch_ms
 )
 VALUES (?, ?, ?);
+
+deleteEntry:
+DELETE FROM video_entries
+WHERE id = ?;

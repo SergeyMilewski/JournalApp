@@ -5,6 +5,7 @@ import com.sergej.jornalapp.domain.model.VideoJournalEntry
 import com.sergej.jornalapp.domain.repository.VideoJournalRepository
 import com.sergej.jornalapp.domain.repository.VideoStorageRepository
 import com.sergej.jornalapp.domain.usecase.CreatePendingCaptureUriUseCase
+import com.sergej.jornalapp.domain.usecase.DeleteVideoEntryUseCase
 import com.sergej.jornalapp.domain.usecase.ObserveVideoEntriesUseCase
 import com.sergej.jornalapp.domain.usecase.SaveCapturedVideoUseCase
 import com.sergej.jornalapp.testing.MainDispatcherExtension
@@ -40,6 +41,27 @@ class VideoJournalViewModelTest {
         viewModel.onDescriptionChanged("Evening reflection")
 
         assertEquals("Evening reflection", viewModel.uiState.value.descriptionDraft)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `given repository entries when viewmodel starts then ui state contains entries`() = runTest {
+        val expectedEntries = listOf(
+            VideoJournalEntry(
+                id = 1L,
+                filePath = "/videos/one.mp4",
+                description = "Morning",
+                createdAtEpochMs = 10L,
+            ),
+        )
+        val journalRepository = mockk<VideoJournalRepository>()
+        val storageRepository = mockk<VideoStorageRepository>()
+        every { journalRepository.observeEntries() } returns MutableStateFlow(expectedEntries)
+
+        val viewModel = createViewModel(journalRepository, storageRepository)
+        advanceUntilIdle()
+
+        assertEquals(expectedEntries, viewModel.uiState.value.entries)
     }
 
     @Test
@@ -117,7 +139,7 @@ class VideoJournalViewModelTest {
         val pendingUri = "content://capture/pending.mp4"
         val journalRepository = mockk<VideoJournalRepository>()
         val storageRepository = mockk<VideoStorageRepository>()
-        every { journalRepository.observeEntries() } returns MutableStateFlow(emptyList<VideoJournalEntry>())
+        every { journalRepository.observeEntries() } returns MutableStateFlow(emptyList())
         every { storageRepository.createPendingCaptureUri() } returns pendingUri
         coEvery { storageRepository.persistCapturedVideo(pendingUri) } throws IllegalStateException("persist failed")
 
@@ -165,6 +187,7 @@ class VideoJournalViewModelTest {
         assertNull(viewModel.uiState.value.pendingCaptureUri)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `given no pending capture when completion callback arrives then ignores callback`() = runTest {
         val journalRepository = mockk<VideoJournalRepository>()
@@ -185,6 +208,63 @@ class VideoJournalViewModelTest {
         coVerify(exactly = 0) { journalRepository.insertEntry(any(), any(), any()) }
     }
 
+    @Test
+    fun `given entry when delete succeeds then emits success message and resets deleting state`() = runTest {
+        val journalRepository = mockk<VideoJournalRepository>()
+        val storageRepository = mockk<VideoStorageRepository>()
+        val entry = VideoJournalEntry(
+            id = 21L,
+            filePath = "/videos/delete.mp4",
+            description = "Delete me",
+            createdAtEpochMs = 1L,
+        )
+        every { journalRepository.observeEntries() } returns MutableStateFlow(listOf(entry))
+        coEvery { storageRepository.deleteVideoFile(entry.filePath) } just Runs
+        coEvery { journalRepository.deleteEntry(entry.id) } just Runs
+
+        val viewModel = createViewModel(journalRepository, storageRepository)
+
+        viewModel.events.test {
+            viewModel.onDeleteRequested(entry)
+            advanceUntilIdle()
+
+            assertEquals(VideoJournalEvent.ShowMessage("Entry deleted."), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        coVerify(exactly = 1) { storageRepository.deleteVideoFile(entry.filePath) }
+        coVerify(exactly = 1) { journalRepository.deleteEntry(entry.id) }
+        assertEquals(false, viewModel.uiState.value.isDeleting)
+    }
+
+    @Test
+    fun `given entry when delete fails then emits error message and keeps deleting state false`() = runTest {
+        val journalRepository = mockk<VideoJournalRepository>()
+        val storageRepository = mockk<VideoStorageRepository>()
+        val entry = VideoJournalEntry(
+            id = 34L,
+            filePath = "/videos/delete-failed.mp4",
+            description = "Delete fail",
+            createdAtEpochMs = 2L,
+        )
+        every { journalRepository.observeEntries() } returns MutableStateFlow(listOf(entry))
+        coEvery { storageRepository.deleteVideoFile(entry.filePath) } throws
+            IllegalStateException("delete failed")
+
+        val viewModel = createViewModel(journalRepository, storageRepository)
+
+        viewModel.events.test {
+            viewModel.onDeleteRequested(entry)
+            advanceUntilIdle()
+
+            assertEquals(VideoJournalEvent.ShowMessage("Failed to delete entry."), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        coVerify(exactly = 0) { journalRepository.deleteEntry(any()) }
+        assertEquals(false, viewModel.uiState.value.isDeleting)
+    }
+
     private fun createViewModel(
         journalRepository: VideoJournalRepository,
         storageRepository: VideoStorageRepository,
@@ -193,6 +273,7 @@ class VideoJournalViewModelTest {
             observeVideoEntriesUseCase = ObserveVideoEntriesUseCase(journalRepository),
             createPendingCaptureUriUseCase = CreatePendingCaptureUriUseCase(storageRepository),
             saveCapturedVideoUseCase = SaveCapturedVideoUseCase(journalRepository, storageRepository),
+            deleteVideoEntryUseCase = DeleteVideoEntryUseCase(journalRepository, storageRepository),
         )
     }
 }

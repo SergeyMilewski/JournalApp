@@ -2,25 +2,22 @@ package com.sergej.jornalapp.domain.usecase
 
 import com.sergej.jornalapp.domain.model.DomainError
 import com.sergej.jornalapp.domain.model.DomainResult
+import com.sergej.jornalapp.domain.model.VideoJournalEntry
 import com.sergej.jornalapp.domain.repository.VideoJournalRepository
 import com.sergej.jornalapp.domain.repository.VideoStorageRepository
 
-class SaveCapturedVideoUseCase(
+class DeleteVideoEntryUseCase(
     private val journalRepository: VideoJournalRepository,
     private val storageRepository: VideoStorageRepository,
 ) {
-    suspend operator fun invoke(captureUri: String, description: String?): DomainResult<Unit> {
+    suspend operator fun invoke(entry: VideoJournalEntry): DomainResult<Unit> {
         return try {
-            val localPath = storageRepository.persistCapturedVideo(captureUri)
-            journalRepository.insertEntry(
-                filePath = localPath,
-                description = description?.takeIf { it.isNotBlank() },
-                createdAtEpochMs = System.currentTimeMillis(),
-            )
+            storageRepository.deleteVideoFile(entry.filePath)
+            journalRepository.deleteEntry(entry.id)
             DomainResult.Success(Unit)
         } catch (error: Throwable) {
             DomainResult.Error(
-                reason = DomainError.SAVE_CAPTURED_VIDEO_FAILED,
+                reason = DomainError.DELETE_VIDEO_ENTRY_FAILED,
                 cause = error,
             )
         }

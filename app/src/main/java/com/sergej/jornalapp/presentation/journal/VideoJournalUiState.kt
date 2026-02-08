@@ -7,6 +7,7 @@ data class VideoJournalUiState(
     val entries: List<VideoJournalEntry> = emptyList(),
     val pendingCaptureUri: String? = null,
     val isSaving: Boolean = false,
+    val isDeleting: Boolean = false,
 )
 
 sealed interface VideoJournalEvent {
