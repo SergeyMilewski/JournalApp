@@ -1,7 +1,9 @@
 package com.sergej.jornalapp.presentation.journal
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -60,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
@@ -81,6 +85,7 @@ import java.util.Date
 fun VideoJournalScreen(
     viewModel: VideoJournalViewModel = koinViewModel(),
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -199,7 +204,16 @@ fun VideoJournalScreen(
                     isPlaying = isCurrentVideoPlaying,
                     player = exoPlayer,
                     onTogglePlayback = { isCurrentVideoPlaying = !isCurrentVideoPlaying },
+                    onShareRequested = {
+                        runCatching { shareVideoEntry(context, entry) }
+                            .onFailure {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Unable to share this video.")
+                                }
+                            }
+                    },
                     onDeleteRequested = { pendingDeleteEntry = entry },
+                    isShareEnabled = !uiState.isDeleting,
                     isDeleteEnabled = !uiState.isDeleting,
                 )
             }
@@ -237,7 +251,9 @@ private fun VideoJournalPagerPage(
     isPlaying: Boolean,
     player: ExoPlayer,
     onTogglePlayback: () -> Unit,
+    onShareRequested: () -> Unit,
     onDeleteRequested: () -> Unit,
+    isShareEnabled: Boolean,
     isDeleteEnabled: Boolean,
 ) {
     Card(
@@ -277,6 +293,24 @@ private fun VideoJournalPagerPage(
                     Icon(
                         imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                    )
+                }
+
+                IconButton(
+                    onClick = onShareRequested,
+                    enabled = isShareEnabled,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.32f),
+                            shape = MaterialTheme.shapes.extraLarge,
+                        ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Share,
+                        contentDescription = "Share entry",
                         tint = Color.White,
                     )
                 }
@@ -525,4 +559,27 @@ private fun formatTimestamp(epochMs: Long): String {
         DateFormat.MEDIUM,
         DateFormat.SHORT,
     ).format(Date(epochMs))
+}
+
+private fun shareVideoEntry(context: Context, entry: VideoJournalEntry) {
+    val videoFile = File(entry.filePath)
+    check(videoFile.exists()) { "Video file not found at ${entry.filePath}" }
+
+    val contentUri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        videoFile,
+    )
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "video/mp4"
+        putExtra(Intent.EXTRA_STREAM, contentUri)
+        clipData = ClipData.newUri(context.contentResolver, "video", contentUri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    context.startActivity(
+        Intent.createChooser(shareIntent, "Share video").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        },
+    )
 }

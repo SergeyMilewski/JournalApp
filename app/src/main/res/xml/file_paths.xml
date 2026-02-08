@@ -3,4 +3,7 @@
     <cache-path
         name="video_capture_cache"
         path="capture/" />
+    <files-path
+        name="journal_videos"
+        path="videos/" />
 </paths>
