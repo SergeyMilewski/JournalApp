@@ -1,0 +1,19 @@
+CREATE TABLE video_entries (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  file_path TEXT NOT NULL,
+  description TEXT,
+  created_at_epoch_ms INTEGER NOT NULL
+);
+
+selectAll:
+SELECT *
+FROM video_entries
+ORDER BY created_at_epoch_ms DESC;
+
+insertEntry:
+INSERT INTO video_entries(
+  file_path,
+  description,
+  created_at_epoch_ms
+)
+VALUES (?, ?, ?);
